@@ -32,8 +32,8 @@ password on SMUBox to allow access to the folder.
 ## Code usage
 
 To run the program, make sure you have python >3.8 installed on your machine and run 
-`
+```
 pip install -r requirements.txt
 python Optical_Switch_64CHBox.py
-`
+```
 This will automatically start switching the channels, reading data, and writing it to SMUBox.
