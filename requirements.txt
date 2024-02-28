@@ -1,2 +1,2 @@
-pyserial
-pyvisa
+pyserial==3.5
+pyvisa==1.12.0
