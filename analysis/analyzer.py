@@ -33,13 +33,12 @@ ftp.login(user="loganlu@mail.smu.edu", passwd="Loganlu20012016!!")
 ftp.prot_p()
 # -------------------------------------------------------------------------------------------------------------#
 ## get parameter function
-main_path = "Processed_data"
-preproc_data_path = "Waveform_parameter_20220705"
-proc_data_path = "Processed_data/Waveform_parameter_20220705"
+main_path = "optical monitor raw data"
+preproc_data_path = "Waveform_data1"  # Data being read from
+proc_data_path = "Processed_data/Waveform_parameter_"  # Data writing to
 
 # change to the directory so we can have shorter strings
 ftp.cwd(main_path)
-ftp.cwd(preproc_data_path)
 
 
 def get_parameter(filename):  # calculate waveform parameters
@@ -93,13 +92,11 @@ def main():
     box_files = ftp.nlst(preproc_data_path)
     # the first 2 files are '.' and '..' so we skip those
     box_files = box_files[2:]
-    
-    get_parameter("Channel35_out_parameter.txt")
 
     # order file by time in name of file
     # file_list = sorted(box_files,  key=lambda x: int(datetime.strptime(x.split(".")[0].split("_")[-2]+"_"+x.split(".")[0].split("_")[-1], '%Y-%m-%d_%H-%M-%S').strftime("%s")))
 
-    for i in range(64):
+    for i in range(1):
         print("Channel ", i)
         raw = []
         days = ftp.nlst(preproc_data_path + "/Channel_" + str(i))
@@ -154,6 +151,8 @@ def main():
                 "%Y-%m-%d_%H-%M-%S",
             )
             if dt.date() >= oldest_date.date():
+                if file_num == 10:
+                    break
                 file_num += 1
                 # print(file_num,len(raw))
 
@@ -176,6 +175,7 @@ def main():
                         lines_for_new_df.append(full_line)
                     except:
                         print("bad file" + file)
+
         new_df = pd.DataFrame(lines_for_new_df)
         new_df.columns = new_df.iloc[0]
         new_df.drop(new_df.index[0], inplace=True)
@@ -183,6 +183,8 @@ def main():
             new_df["datetime"], format="%m/%d/%Y %H:%M:%S"
         )
         new_df.set_index("datetime", inplace=True)
+
+    print(new_df.head())
 
 
 if __name__ == "__main__":
