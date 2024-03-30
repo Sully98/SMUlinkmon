@@ -88,26 +88,52 @@ def get_date_time(filename):
 
 # -------------------------------------------------------------------------------------------------------------#
 def getLastAnalyzedDate(channel_num):
+    # This should have two scenarios,
+    # 1. There is no file, so the oldest date is something really far in the past
+    # 2. You do have a file and you get the last row of file to retrieve
+    #    the oldest date, assuming that the file is ordered by date
+    # Now return this date
     pass
 
 
-def getFilesAfterDate(lastAnalyzedDate):
-    pass
+def getFilesAfterDate(lastAnalyzedDate) -> list:
+    # This function will just return a list ^
+    # it will just be a list of all of the files
+    # on the current channel we are working on that
+    # are older than the date that we found
+    return []
 
 
-def analyzeFiles(fileNamesToBeProc):
-    pass
+def readFileFromBox(file):
+    # This actually reads from box
+    # Returns an in-memory file object that
+    # can be used by pandas
+    return io.StringIO
+
+
+def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
+    # will take all the file names, read them in
+    # analyze them and return back a dataframe
+    # that will need to be transformed
+    return pd.DataFrame()
 
 
 def resample(allAnalyzedDTs):
+    # Take the dataframe with every data point
+    # and resample it so we only have a data
+    # point for every day
     pass
 
 
 def combineWithExisting(sampleToDays):
+    # Take the existing analyzed data (if there is any in Box)
+    # and append the new stuff to the old
     pass
 
 
 def uploadToBox(dataToBeUploaded):
+    # take the final analyzed and joined data and send it
+    # to the box directory
     pass
 
 
