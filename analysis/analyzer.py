@@ -29,13 +29,13 @@ import numpy as np
 
 
 ftp = FTP_TLS("ftp.box.com")
-ftp.login(user="sbillingsley@smu.edu", passwd="Pbex5fFsbfzYEH9!!")
+ftp.login(user="loganlu@mail.smu.edu", passwd="Loganlu20012016!!")
 ftp.prot_p()
 # -------------------------------------------------------------------------------------------------------------#
 ## get parameter function
 main_path = "optical monitor raw data"
 preproc_data_path = "Waveform_data1"
-proc_data_path = "Processed_data/Waveform_parameter_"
+proc_data_path = "Processed_data/Waveform_parameter_20220706"
 
 # change to the directory so we can have shorter strings
 ftp.cwd(main_path)
@@ -93,6 +93,29 @@ def getLastAnalyzedDate(channel_num):
     # 2. You do have a file and you get the last row of file to retrieve
     #    the oldest date, assuming that the file is ordered by date
     # Now return this date
+    oldest_date = datetime(1900, 1, 1)  # very old date
+    filename = f'{proc_data_path}channel{channel_num}_out_parameter.txt'  # assuming the existing data is in CSV format
+
+    try:
+        # Check if the file exists in the Box directory
+        ftp.cwd(proc_data_path)
+        files = ftp.nlst()
+        if filename in files:
+            # Download the file
+            with io.BytesIO() as memory_file:
+                ftp.retrbinary(f'RETR {filename}', memory_file.write)
+                memory_file.seek(0)
+                # Read the last row to get the latest date
+                df = pd.read_csv(memory_file)
+                last_row = df.iloc[-1]
+                last_date_str = last_row['Date']  # Assuming there is a 'Date' column
+                last_analyzed_date = datetime.strptime(last_date_str, '%Y-%m-%d')
+                return last_analyzed_date
+        else:
+            return oldest_date
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        return oldest_date
     pass
 
 
@@ -108,13 +131,29 @@ def readFileFromBox(file):
     # This actually reads from box
     # Returns an in-memory file object that
     # can be used by pandas
-    return io.StringIO
+    try:
+        memory_file = io.StringIO()
+        ftp.retrbinary(f'RETR {file}', memory_file.write)
+        memory_file.seek(0)
+        string_data = memory_file.getvalue().decode('utf-8')
+        return io.StringIO(string_data)
+    except Exception as e:
+        print(f"Error occurred while reading file from Box: {e}")
+        return None
 
 
 def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
     # will take all the file names, read them in
     # analyze them and return back a dataframe
     # that will need to be transformed
+    allAnalyzedDTs = []
+    for file in fileNamesToBeProc:
+        memory_file = readFileFromBox(file)
+        if memory_file is not None:
+            df = pd.read_csv(memory_file)
+            analyzed_data = get_parameter(df)
+            allAnalyzedDTs.append(analyzed_data)
+    return pd.DataFrame(allAnalyzedDTs, columns=['mu', 'sigma', 'peak_wavelength', 'peak_power', 'total_power', 'total_dBm'])
     return pd.DataFrame()
 
 
