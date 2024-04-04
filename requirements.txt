@@ -2,3 +2,4 @@ pyserial==3.5
 pyvisa==1.12.0
 pandas==1.5.3
 numpy==1.24.2
+tqdm==4.66.2
