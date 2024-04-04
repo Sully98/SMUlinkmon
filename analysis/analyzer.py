@@ -87,108 +87,96 @@ def get_date_time(filename):
 
 
 # -------------------------------------------------------------------------------------------------------------#
-def getLastAnalyzedDate(channel_num):
-    # This should have two scenarios,
-    # 1. There is no file, so the oldest date is something really far in the past
-    # 2. You do have a file and you get the last row of file to retrieve
-    #    the oldest date, assuming that the file is ordered by date
-    # Now return this date
-    oldest_date = datetime(1900, 1, 1)  # very old date
-    filename = f'{proc_data_path}channel{channel_num}_out_parameter.txt'  # assuming the existing data is in CSV format
-
-    try:
-        # Check if the file exists in the Box directory
-        ftp.cwd(proc_data_path)
-        files = ftp.nlst()
-        if filename in files:
-            # Download the file
-            with io.BytesIO() as memory_file:
-                ftp.retrbinary(f'RETR {filename}', memory_file.write)
-                memory_file.seek(0)
-                # Read the last row to get the latest date
-                df = pd.read_csv(memory_file)
-                last_row = df.iloc[-1]
-                last_date_str = last_row['Date']  # Assuming there is a 'Date' column
-                last_analyzed_date = datetime.strptime(last_date_str, '%Y-%m-%d')
-                return last_analyzed_date
-        else:
-            return oldest_date
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        return oldest_date
-    pass
-
-
-def getFilesAfterDate(lastAnalyzedDate) -> list:
-    # This function will just return a list ^
-    # it will just be a list of all of the files
-    # on the current channel we are working on that
-    # are older than the date that we found
-    return []
-
-
-def readFileFromBox(file):
-    # This actually reads from box
-    # Returns an in-memory file object that
-    # can be used by pandas
-    try:
-        memory_file = io.StringIO()
-        ftp.retrbinary(f'RETR {file}', memory_file.write)
-        memory_file.seek(0)
-        string_data = memory_file.getvalue().decode('utf-8')
-        return io.StringIO(string_data)
-    except Exception as e:
-        print(f"Error occurred while reading file from Box: {e}")
-        return None
-
-
-def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
-    # will take all the file names, read them in
-    # analyze them and return back a dataframe
-    # that will need to be transformed
-    allAnalyzedDTs = []
-    for file in fileNamesToBeProc:
-        memory_file = readFileFromBox(file)
-        if memory_file is not None:
-            df = pd.read_csv(memory_file)
-            analyzed_data = get_parameter(df)
-            allAnalyzedDTs.append(analyzed_data)
-    return pd.DataFrame(allAnalyzedDTs, columns=['mu', 'sigma', 'peak_wavelength', 'peak_power', 'total_power', 'total_dBm'])
-    return pd.DataFrame()
-
-
-def resample(allAnalyzedDTs):
-    # Take the dataframe with every data point
-    # and resample it so we only have a data
-    # point for every day
-    pass
-
-
-def combineWithExisting(sampleToDays):
-    # Take the existing analyzed data (if there is any in Box)
-    # and append the new stuff to the old
-    pass
-
-
-def uploadToBox(dataToBeUploaded):
-    # take the final analyzed and joined data and send it
-    # to the box directory
-    pass
-
-
 def main():
 
-    for channel_num in range(64):
+    box_files = ftp.nlst(preproc_data_path)
+    # the first 2 files are '.' and '..' so we skip those
+    box_files = box_files[2:]
 
-        lastAnalyzedDate = getLastAnalyzedDate(channel_num)
-        fileNamesToBeProc = getFilesAfterDate(lastAnalyzedDate)
-        allAnalyzedDTs = analyzeFiles(fileNamesToBeProc)
-        sampleToDays = resample(allAnalyzedDTs)
-        dataToBeUploaded = combineWithExisting(sampleToDays)
-        uploadStatus = uploadToBox(dataToBeUploaded)
+    # order file by time in name of file
+    # file_list = sorted(box_files,  key=lambda x: int(datetime.strptime(x.split(".")[0].split("_")[-2]+"_"+x.split(".")[0].split("_")[-1], '%Y-%m-%d_%H-%M-%S').strftime("%s")))
 
-        print(f"Channel {channel_num} was {uploadStatus}")
+    for i in range(64):
+        print("Channel ", i)
+        raw = []
+        days = ftp.nlst(preproc_data_path + "/Channel_" + str(i))
 
+        oldest_date = datetime(1970, 1, 1)
 
-if __name__ == "__main__":
-    main()
+        try:
+            for day in days[2:]:
+                for j in ftp.nlst(preproc_data_path + "/Channel_" + str(i) + "/" + day)[
+                    2:
+                ]:
+                    raw.append(
+                        preproc_data_path + "/Channel_" + str(i) + "/" + day + "/" + j
+                    )
+                    # print(preproc_data_path+"/Channel_"+str(i)+"/"+day+"/"+j)
+        except Exception as e:
+            print(e)
+
+        lines_for_new_df = [
+            [
+                "datetime",
+                "mu",
+                "sigma",
+                "peak_wavelength",
+                "peak_power",
+                "total_power",
+                "total_dBm",
+            ]
+        ]
+
+        file_num = 0
+        for file in raw:
+
+            # each file in this list gets written to one line in the channel(i) out parameter text file
+            dt = datetime.strptime(
+                file.split(".")[0].split("_")[-2]
+                + "_"
+                + file.split(".")[0].split("_")[-1],
+                "%Y-%m-%d_%H-%M-%S",
+            )
+            if dt.date() >= oldest_date.date():
+                file_num += 1
+        print("files to analyze ", file_num)
+        file_num = 0
+        for file in raw:
+
+            # each file in this list gets written to one line in the channel(i) out parameter text file
+            dt = datetime.strptime(
+                file.split(".")[0].split("_")[-2]
+                + "_"
+                + file.split(".")[0].split("_")[-1],
+                "%Y-%m-%d_%H-%M-%S",
+            )
+            if dt.date() >= oldest_date.date():
+                file_num += 1
+                # print(file_num,len(raw))
+
+                date_str = dt.date().strftime("%m/%d/%Y")
+                time_str = dt.time().strftime(" %H:%M:%S")
+                if file.endswith(".txt"):
+                    try:
+                        data_to_work_on = []
+                        ftp.retrlines("RETR " + file, callback=data_to_work_on.append)
+
+                        fake_file = io.StringIO("\n".join(data_to_work_on))
+                        par_list = get_parameter(
+                            fake_file
+                        )  # return back calculation parameters
+                        # print(par_list)
+
+                        date_time_list = [date_str + time_str]  # return back file date
+                        # print(date_time_list)
+                        full_line = date_time_list + par_list
+                        lines_for_new_df.append(full_line)
+                    except:
+                        print("bad file" + file)
+        new_df = pd.DataFrame(lines_for_new_df)
+        new_df.columns = new_df.iloc[0]
+        new_df.drop(new_df.index[0], inplace=True)
+        new_df["datetime"] = pd.to_datetime(
+            new_df["datetime"], format="%m/%d/%Y %H:%M:%S"
+        )
+        new_df.set_index("datetime", inplace=True)
