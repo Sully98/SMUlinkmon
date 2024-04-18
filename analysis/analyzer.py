@@ -87,104 +87,177 @@ def get_date_time(filename):
 
 
 # -------------------------------------------------------------------------------------------------------------#
+def getLastAnalyzedDate(channel_num):
+    # This should have two scenarios,
+    # 1. There is no file, so the oldest date is something really far in the past
+    # 2. You do have a file and you get the last row of file to retrieve
+    #    the oldest date, assuming that the file is ordered by date
+    # Now return this date
+    oldest_date = datetime(1900, 1, 1)  # very old date
+    fileName = (
+        f"channel{channel_num}.csv"  # assuming the existing data is in CSV format
+    )
+
+    # Check if the file exists in the Box directory
+    ftp.cwd(proc_data_path)
+    logging.debug(f"Changed to {proc_data_path}")
+    files = ftp.nlst()
+    logging.debug(f"Files in {proc_data_path}: {files}")
+    if fileName in files:
+        logging.debug("found file in list of files")
+        # Download the file
+        memory_file = readFileFromBox(fileName)
+        # Read the last row to get the latest date
+        df = pd.read_csv(memory_file)
+        memory_file.close()
+        last_row = df.iloc[-1]
+        last_date_str = last_row["datetime"]  # Assuming there is a 'Date' column
+        oldest_date = datetime.strptime(last_date_str, "%Y-%m-%d")
+    else:
+        logging.debug("using default old date")
+    logging.debug(f"Oldest date is {oldest_date}")
+    return oldest_date
+
+
+def getDaysToAnalyze(lastAnalyzedDate, channel_num) -> list:
+    # This function will just return a list
+    # it will just be a list of all of the files
+    # on the current channel we are working on that
+    # are older than the date that we found
+    ftp.cwd(f"/{main_path}")
+    logging.debug(f"in 'getFilesAfterDate' ftp is in {ftp.pwd()}")
+    daysAvailableForProc = ftp.nlst(f"{preproc_data_path}/Channel_{channel_num}/*")
+    # the first two entries in daysAvailableForProc are '.', '..' so we remove them
+    daysAvailableForProc = daysAvailableForProc[2:]
+    logging.debug(f"days available to be processed {daysAvailableForProc}")
+    logging.debug(f"number of days available {len(daysAvailableForProc)}")
+
+    daysAfterOldestDate = []
+    for day in daysAvailableForProc:
+        day_dt = datetime.strptime(day, "%Y-%m-%d")
+        if day_dt > lastAnalyzedDate:
+            daysAfterOldestDate.append(day)
+    logging.debug(f"days after oldest date {daysAfterOldestDate}")
+    logging.debug(f"number of days after oldest date {len(daysAfterOldestDate)}")
+
+    return daysAfterOldestDate
+
+
+def getFilesForDate(day, channel_num) -> list:
+    # This function will just return a list
+    # it will just be a list of all of the files
+    # on the current channel we are working on that
+    # are older than the date that we found
+
+    filesForDate = []
+    # get list of all of the files in this folder
+    dayFolder = f"{preproc_data_path}/Channel_{channel_num}/{day}"
+    logging.debug(f"Looking in folder {dayFolder}")
+    fileNames = ftp.nlst(dayFolder)[2:]
+    for f in fileNames:
+        filesForDate.append(f"{dayFolder}/{f}")
+    logging.debug(f"Have to process {len(filesForDate)} files for {day}")
+    return filesForDate
+
+
+def readFileFromBox(fileName):
+    # This actually reads from box
+    # Returns an in-memory file object that
+    # can be used by pandas
+    # memory_file = io.StringIO()
+    # ftp.retrbinary(f"RETR {file}", memory_file.write)
+    # memory_file.seek(0)
+    # string_data = memory_file.getvalue().decode("utf-8")
+    # return io.StringIO(string_data)
+
+    memory_file = io.BytesIO()
+    ftp.retrbinary(f"RETR {fileName}", memory_file.write)
+    memory_file.seek(0)
+    return memory_file
+
+
+def readAndAnalyzeWorker(shared_list, file):
+
+    ### TODO ADD COLUMN FOR DATETIME FROM THE FILE NAME
+    parts = file.split('_')
+    channel = parts[1].replace('channel', '')  # Extracts '63' from 'channel63'
+    datetime_str = parts[2] + '_' + parts[3] + '_' + parts[4].replace('.txt', '')  # Merges date and time parts and removes '.txt'
+    datetime_obj = datetime.datetime.strptime(datetime_str, "%Y-%m-%d_%H-%M-%S")
+    memory_file = readFileFromBox(file)
+    if memory_file is not None:
+        df = pd.read_csv(memory_file)
+        analyzed_data = get_parameter(df)
+        shared_list.append(analyzed_data)
+    
+    analyzed_data = get_parameter(df)
+    result = [channel, datetime_obj] + analyzed_data 
+    shared_list.append(result)
+
+def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
+    # will take all the file names, read them in
+    # analyze them and return back a dataframe
+    # that will need to be transformed
+
+    ######
+    # HERE IS WHERE YOU CAN DO SOME MULTIPROCESSING
+    # USE TQDM.PROCESS_MAP OR SOMETHING LIKE THAT
+    #####
+    # YOU WILL NEED TO WRAP A FUNCTION TO READ AND ANALYZE THE DATA
+    ####
+    # CODE SAMPLE:
+    # https://stackoverflow.com/questions/67957266/python-tqdm-process-map-append-list-shared-between-processes
+
+    manager = Manager()
+    shared_list = manager.list()
+
+    process_map(
+        partial(readAndAnalyzeWorker, shared_list), fileNamesToBeProc, max_workers=5, chunksize=1, total=len(fileNamesToBeProc)
+    )
+
+    if shared_list:  # Ensure there is data in the shared list
+        return pd.DataFrame(
+            list(shared_list),
+            columns=[
+                "datetime", "mu", "sigma", "peak_wavelength", 
+                "peak_power", "total_power", "total_dBm"
+            ]
+        )
+    return pd.DataFrame()
+
+
+def resample(allAnalyzedDTs):
+    # Take the dataframe with every data point
+    # and resample it so we only have a data
+    # point for every day
+    pass
+
+
+def combineWithExisting(sampleToDays):
+    # Take the existing analyzed data (if there is any in Box)
+    # and append the new stuff to the old
+    pass
+
+
+def uploadToBox(dataToBeUploaded):
+    # take the final analyzed and joined data and send it
+    # to the box directory
+    pass
+
+
 def main():
 
-    box_files = ftp.nlst(preproc_data_path)
-    # the first 2 files are '.' and '..' so we skip those
-    box_files = box_files[2:]
+    for channel_num in range(1):
 
-    # order file by time in name of file
-    # file_list = sorted(box_files,  key=lambda x: int(datetime.strptime(x.split(".")[0].split("_")[-2]+"_"+x.split(".")[0].split("_")[-1], '%Y-%m-%d_%H-%M-%S').strftime("%s")))
+        lastAnalyzedDate = getLastAnalyzedDate(channel_num)
+        daysToAnalyze = getDaysToAnalyze(lastAnalyzedDate, channel_num)
+        for day in daysToAnalyze:
+            fileNamesToBeProc = getFilesForDate(day, channel_num)
+            analyzedDay = analyzeFiles(fileNamesToBeProc)
+            # sampleToDays = resample(analyzedDay)
+            # dataToBeUploaded = combineWithExisting(sampleToDays)
+            # uploadStatus = uploadToBox(dataToBeUploaded)
 
-    for i in range(1):
-        print("Channel ", i)
-        raw = []
-        days = ftp.nlst(preproc_data_path + "/Channel_" + str(i))
-
-        oldest_date = datetime(1970, 1, 1)
-
-        try:
-            for day in days[2:]:
-                for j in ftp.nlst(preproc_data_path + "/Channel_" + str(i) + "/" + day)[
-                    2:
-                ]:
-                    raw.append(
-                        preproc_data_path + "/Channel_" + str(i) + "/" + day + "/" + j
-                    )
-                    # print(preproc_data_path+"/Channel_"+str(i)+"/"+day+"/"+j)
-        except Exception as e:
-            print(e)
-
-        lines_for_new_df = [
-            [
-                "datetime",
-                "mu",
-                "sigma",
-                "peak_wavelength",
-                "peak_power",
-                "total_power",
-                "total_dBm",
-            ]
-        ]
-
-        file_num = 0
-        for file in raw:
-
-            # each file in this list gets written to one line in the channel(i) out parameter text file
-            dt = datetime.strptime(
-                file.split(".")[0].split("_")[-2]
-                + "_"
-                + file.split(".")[0].split("_")[-1],
-                "%Y-%m-%d_%H-%M-%S",
-            )
-            if dt.date() >= oldest_date.date():
-                file_num += 1
-        print("files to analyze ", file_num)
-        file_num = 0
-        for file in raw:
-
-            # each file in this list gets written to one line in the channel(i) out parameter text file
-            dt = datetime.strptime(
-                file.split(".")[0].split("_")[-2]
-                + "_"
-                + file.split(".")[0].split("_")[-1],
-                "%Y-%m-%d_%H-%M-%S",
-            )
-            if dt.date() >= oldest_date.date():
-                if file_num == 10:
-                    break
-                file_num += 1
-                # print(file_num,len(raw))
-
-                date_str = dt.date().strftime("%m/%d/%Y")
-                time_str = dt.time().strftime(" %H:%M:%S")
-                if file.endswith(".txt"):
-                    try:
-                        data_to_work_on = []
-                        ftp.retrlines("RETR " + file, callback=data_to_work_on.append)
-
-                        fake_file = io.StringIO("\n".join(data_to_work_on))
-                        par_list = get_parameter(
-                            fake_file
-                        )  # return back calculation parameters
-                        # print(par_list)
-
-                        date_time_list = [date_str + time_str]  # return back file date
-                        # print(date_time_list)
-                        full_line = date_time_list + par_list
-                        lines_for_new_df.append(full_line)
-                    except:
-                        print("bad file" + file)
-
-        new_df = pd.DataFrame(lines_for_new_df)
-        new_df.columns = new_df.iloc[0]
-        new_df.drop(new_df.index[0], inplace=True)
-        new_df["datetime"] = pd.to_datetime(
-            new_df["datetime"], format="%m/%d/%Y %H:%M:%S"
-        )
-        new_df.set_index("datetime", inplace=True)
-
-    print(new_df.head())
+    # print(f"Channel {channel_num} was {uploadStatus}")
 
 
 if __name__ == "__main__":
