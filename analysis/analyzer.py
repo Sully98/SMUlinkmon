@@ -95,7 +95,8 @@ def get_date_time(filename):
         filename.replace("waveform_data_channel", "").replace(".txt", "").split("_")
     )
     # print (filename_list[1:])
-    return filename_list[1:]
+    dt_str = "_".join(filename_list[-2:])
+    return dt_str
 
 
 # -------------------------------------------------------------------------------------------------------------#
@@ -191,10 +192,12 @@ def readFileFromBox(fileName):
 def readAndAnalyzeWorker(shared_list, file):
 
     ### TODO ADD COLUMN FOR DATETIME FROM THE FILE NAME
+    dt_str = get_date_time(file)
+    dt = datetime.strptime(dt_str, "%Y-%m-%d_%H-%M-%S")
     memory_file = readFileFromBox(file)
     if memory_file is not None:
-        df = pd.read_csv(memory_file)
-        analyzed_data = get_parameter(df)
+        analyzed_data = get_parameter(memory_file)
+        analyzed_data.insert(0, dt)
         shared_list.append(analyzed_data)
 
 
@@ -215,12 +218,13 @@ def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
     manager = Manager()
     shared_list = manager.list()
 
+    fileNamesToBeProc = fileNamesToBeProc[:5]
     process_map(
         partial(readAndAnalyzeWorker, shared_list), fileNamesToBeProc, max_workers=5
     )
 
-    return pd.DataFrame(
-        shared_list,
+    analyzed = pd.DataFrame(
+        list(shared_list),
         columns=[
             "datetime",
             "mu",
@@ -231,24 +235,52 @@ def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
             "total_dBm",
         ],
     )
+    analyzed.set_index("datetime", inplace=True)
+    return analyzed
 
 
 def resample(allAnalyzedDTs):
     # Take the dataframe with every data point
     # and resample it so we only have a data
     # point for every day
-    pass
+    return allAnalyzedDTs.resample("D").mean()
 
 
-def combineWithExisting(sampleToDays):
+def combineWithExisting(sampleToDays, channel_num):
     # Take the existing analyzed data (if there is any in Box)
     # and append the new stuff to the old
+
+    # check if there is a file in the analyzed data folder matching the channel number you are on
+    # if so, read it in and append the new rows to it
+    # return the new combined dataframe
     pass
 
 
 def uploadToBox(dataToBeUploaded):
     # take the final analyzed and joined data and send it
     # to the box directory
+
+    # The below code sample is how you write to box
+    # you will have to convert the dataframe to a list
+    # each row of the dataframe is a new entry in the list called "lines"
+    # data = io.BytesIO("\n".join(lines).encode())
+    #    try:
+    #        ftp.storlines(
+    #            "STOR "
+    #            + "Channel_"
+    #            + str(mychannel1)
+    #            + "/"
+    #            + date
+    #            + "/"
+    #            + "waveform_data_channel%s_%s.txt"
+    #            % (mychannel1, timestamp),
+    #            fp=data,
+    #        )
+    #    except Exception as e:
+    #        print("Failed box upload", e)
+
+    # Want to return if the upload was successful or not
+
     pass
 
 
@@ -261,8 +293,12 @@ def main():
         for day in daysToAnalyze:
             fileNamesToBeProc = getFilesForDate(day, channel_num)
             analyzedDay = analyzeFiles(fileNamesToBeProc)
-            # sampleToDays = resample(analyzedDay)
-            # dataToBeUploaded = combineWithExisting(sampleToDays)
+            print(analyzedDay.head())
+            # resampling, combining, and uploading after every day to have progress in case
+            # program fails, we won't have to run everything again
+            sampleToDays = resample(analyzedDay)
+            print(sampleToDays)
+            dataToBeUploaded = combineWithExisting(sampleToDays, channel_num)
             # uploadStatus = uploadToBox(dataToBeUploaded)
 
     # print(f"Channel {channel_num} was {uploadStatus}")
