@@ -143,7 +143,7 @@ def getDaysToAnalyze(lastAnalyzedDate, channel_num) -> list:
     daysAvailableForProc = ftp.nlst(f"{preproc_data_path}/Channel_{channel_num}/*")
     # the first two entries in daysAvailableForProc are '.', '..' so we remove them
     daysAvailableForProc = daysAvailableForProc[2:]
-    logging.debug(f"days available to be processed {daysAvailableForProc}")
+    # logging.debug(f"days available to be processed {daysAvailableForProc}")
     logging.debug(f"number of days available {len(daysAvailableForProc)}")
 
     daysAfterOldestDate = []
@@ -151,7 +151,7 @@ def getDaysToAnalyze(lastAnalyzedDate, channel_num) -> list:
         day_dt = datetime.strptime(day, "%Y-%m-%d")
         if day_dt > lastAnalyzedDate:
             daysAfterOldestDate.append(day)
-    logging.debug(f"days after oldest date {daysAfterOldestDate}")
+    # logging.debug(f"days after oldest date {daysAfterOldestDate}")
     logging.debug(f"number of days after oldest date {len(daysAfterOldestDate)}")
 
     return daysAfterOldestDate
@@ -219,6 +219,7 @@ def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
     manager = Manager()
     shared_list = manager.list()
 
+    # test just process 5 files
     fileNamesToBeProc = fileNamesToBeProc[:5]
     process_map(
         partial(readAndAnalyzeWorker, shared_list), fileNamesToBeProc, max_workers=5
@@ -254,7 +255,34 @@ def combineWithExisting(sampleToDays, channel_num):
     # check if there is a file in the analyzed data folder matching the channel number you are on
     # if so, read it in and append the new rows to it
     # return the new combined dataframe
-    pass
+    df = pd.DataFrame()
+    oldAnalyzedFileName = (
+        f"channel{channel_num}.csv"  # assuming the existing data is in CSV format
+    )
+
+    # Check if the file exists in the Box directory
+    ftp.cwd(proc_data_path)
+    logging.debug(f"Changed to {proc_data_path}")
+    files = ftp.nlst()
+    logging.debug(f"Files in {proc_data_path}: {files}")
+    if oldAnalyzedFileName in files:
+        logging.debug("found file in list of files")
+        # Download the file
+        memory_file = readFileFromBox(oldAnalyzedFileName)
+        # Read the last row to get the latest date
+        df = pd.read_csv(memory_file)
+        df["datetime"] = pd.to_datetime(df["datetime"], format="%Y-%m-%d")
+        df.set_index("datetime", inplace=True)
+        memory_file.close()
+        print("Old Analyzed: ")
+        print(df.index)
+        print(df.head())
+    else:
+        logging.debug("using default old date")
+    print(len(df))
+    df = pd.concat([df, sampleToDays])
+    print(df.tail())
+    print(len(df))
 
 
 def uploadToBox(dataToBeUploaded):
@@ -264,21 +292,24 @@ def uploadToBox(dataToBeUploaded):
     # The below code sample is how you write to box
     # you will have to convert the dataframe to a list
     # each row of the dataframe is a new entry in the list called "lines"
-    # data = io.BytesIO("\n".join(lines).encode())
-    #    try:
-    #        ftp.storlines(
-    #            "STOR "
-    #            + "Channel_"
-    #            + str(mychannel1)
-    #            + "/"
-    #            + date
-    #            + "/"
-    #            + "waveform_data_channel%s_%s.txt"
-    #            % (mychannel1, timestamp),
-    #            fp=data,
-    #        )
-    #    except Exception as e:
-    #        print("Failed box upload", e)
+    
+    lines = ["datetime, mu, power"]
+    lines = ["2023-05-06, 845.34, -20"]
+    data = io.BytesIO("\n".join(lines).encode())
+       try:
+           ftp.storlines(
+               "STOR "
+               + "Channel_"
+               + str(mychannel1)
+               + "/"
+               + date
+               + "/"
+               + "waveform_data_channel%s_%s.txt"
+               % (mychannel1, timestamp),
+               fp=data,
+           )
+       except Exception as e:
+           print("Failed box upload", e)
 
     # Want to return if the upload was successful or not
 
@@ -287,6 +318,7 @@ def uploadToBox(dataToBeUploaded):
 
 def main():
 
+    # Iterate over all channels
     for channel_num in range(1):
 
         lastAnalyzedDate = getLastAnalyzedDate(channel_num)
@@ -295,12 +327,11 @@ def main():
             fileNamesToBeProc = getFilesForDate(day, channel_num)
             analyzedDay = analyzeFiles(fileNamesToBeProc)
             print(analyzedDay.head())
+            sampleToDays = resample(analyzedDay)
+            dataToBeUploaded = combineWithExisting(sampleToDays, channel_num)
             # resampling, combining, and uploading after every day to have progress in case
             # program fails, we won't have to run everything again
-            sampleToDays = resample(analyzedDay)
-            print(sampleToDays)
-            dataToBeUploaded = combineWithExisting(sampleToDays, channel_num)
-            # uploadStatus = uploadToBox(dataToBeUploaded)
+            uploadStatus = uploadToBox(dataToBeUploaded)
 
     # print(f"Channel {channel_num} was {uploadStatus}")
 
