@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 
 
 ftp = FTP_TLS("ftp.box.com")
-ftp.login(user="loganlu@mail.smu.edu", passwd="Loganlu20012016!!")
+# ftp.login(user="loganlu@mail.smu.edu", passwd="Loganlu20012016!!")
+ftp.login(user="sbillingsley@smu.edu", passwd="SMUPhyslink24!")
 ftp.prot_p()
 # -------------------------------------------------------------------------------------------------------------#
 ## get parameter function
