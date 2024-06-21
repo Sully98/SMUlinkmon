@@ -1,3 +1,4 @@
+import time
 import pandas as pd
 from math import sqrt, log10
 from datetime import datetime
@@ -165,6 +166,7 @@ def getFilesForDate(day, channel_num) -> list:
 
     filesForDate = []
     # get list of all of the files in this folder
+    ftp.cwd(f"/{main_path}")
     dayFolder = f"{preproc_data_path}/Channel_{channel_num}/{day}"
     logging.debug(f"Looking in folder {dayFolder}")
     fileNames = ftp.nlst(dayFolder)[2:]
@@ -192,7 +194,6 @@ def readFileFromBox(fileName):
 
 def readAndAnalyzeWorker(shared_list, file):
 
-    ### TODO ADD COLUMN FOR DATETIME FROM THE FILE NAME
     dt_str = get_date_time(file)
     dt = datetime.strptime(dt_str, "%Y-%m-%d_%H-%M-%S")
     memory_file = readFileFromBox(file)
@@ -219,8 +220,6 @@ def analyzeFiles(fileNamesToBeProc) -> pd.DataFrame:
     manager = Manager()
     shared_list = manager.list()
 
-    # test just process 5 files
-    fileNamesToBeProc = fileNamesToBeProc[:5]
     process_map(
         partial(readAndAnalyzeWorker, shared_list), fileNamesToBeProc, max_workers=5
     )
@@ -281,60 +280,60 @@ def combineWithExisting(sampleToDays, channel_num):
         logging.debug("using default old date")
     print(len(df))
     df = pd.concat([df, sampleToDays])
+    # fill in missing days by resampling
+    df = resample(df)
     print(df.tail())
-    print(len(df))
+    return df
 
 
-def uploadToBox(dataToBeUploaded):
+def uploadToBox(dataToBeUploaded, channel_num):
     # take the final analyzed and joined data and send it
     # to the box directory
 
     # The below code sample is how you write to box
     # you will have to convert the dataframe to a list
     # each row of the dataframe is a new entry in the list called "lines"
-    
-    lines = ["datetime, mu, power"]
-    lines = ["2023-05-06, 845.34, -20"]
-    data = io.BytesIO("\n".join(lines).encode())
-       try:
-           ftp.storlines(
-               "STOR "
-               + "Channel_"
-               + str(mychannel1)
-               + "/"
-               + date
-               + "/"
-               + "waveform_data_channel%s_%s.txt"
-               % (mychannel1, timestamp),
-               fp=data,
-           )
-       except Exception as e:
-           print("Failed box upload", e)
+    ftp.cwd(f"/{main_path}/{proc_data_path}")
+    lines = dataToBeUploaded.to_csv()
+    data = io.BytesIO(lines.encode())
+    try:
+        ftp.storlines(f"STOR channel{channel_num}.csv", fp=data)
+    except Exception as e:
+        print("Failed box upload", e)
 
     # Want to return if the upload was successful or not
 
     pass
 
 
+def process_channel(channel_num):
+
+    lastAnalyzedDate = getLastAnalyzedDate(channel_num)
+    daysToAnalyze = getDaysToAnalyze(lastAnalyzedDate, channel_num)
+    for day in daysToAnalyze:
+        fileNamesToBeProc = getFilesForDate(day, channel_num)
+        analyzedDay = analyzeFiles(fileNamesToBeProc)
+        print(analyzedDay.head())
+        sampleToDays = resample(analyzedDay)
+        dataToBeUploaded = combineWithExisting(sampleToDays, channel_num)
+        # resampling, combining, and uploading after every day to have progress in case
+        # program fails, we won't have to run everything again
+        uploadStatus = uploadToBox(dataToBeUploaded, channel_num)
+
+
 def main():
 
-    # Iterate over all channels
-    for channel_num in range(1):
-
-        lastAnalyzedDate = getLastAnalyzedDate(channel_num)
-        daysToAnalyze = getDaysToAnalyze(lastAnalyzedDate, channel_num)
-        for day in daysToAnalyze:
-            fileNamesToBeProc = getFilesForDate(day, channel_num)
-            analyzedDay = analyzeFiles(fileNamesToBeProc)
-            print(analyzedDay.head())
-            sampleToDays = resample(analyzedDay)
-            dataToBeUploaded = combineWithExisting(sampleToDays, channel_num)
-            # resampling, combining, and uploading after every day to have progress in case
-            # program fails, we won't have to run everything again
-            uploadStatus = uploadToBox(dataToBeUploaded)
-
-    # print(f"Channel {channel_num} was {uploadStatus}")
+    channel_nums = list(range(64))
+    process_map(process_channel, channel_nums, max_workers=5)
 
 
 if __name__ == "__main__":
-    main()
+    while True:
+        time_at_execution = time.time()
+        main()
+        time_after_execution = time.time()
+        day_in_seconds = 60 * 60 * 24
+        sleep_amount = day_in_seconds - (time_after_execution - time_at_execution)
+        # if the sleep_amount is negative then it ran for more than 24 hours, so just execute again
+        if sleep_amount > 0:
+            time.sleep(sleep_amount)
